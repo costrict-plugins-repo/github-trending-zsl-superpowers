@@ -1,0 +1,154 @@
+site_name: ZSL Superpowers
+site_url: https://superpowers.zsl.dev
+site_description: Agent skills for real engineering, not vibe coding.
+site_author: ZunoSmartLabs
+repo_url: https://github.com/ZunoSmartLabs/zsl-superpowers
+repo_name: ZunoSmartLabs/zsl-superpowers
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    # `custom` defers the actual colours to docs/stylesheets/extra.css, which
+    # holds the ZSL violet and navy. Keep them there, not here.
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  # Cards use the ZSL layout in layouts/zsl.yml so they match the marketing
+  # site's. Changing it means clearing .cache/plugin/social/ before rebuilding,
+  # or the old cards are served straight back from cache.
+  - social:
+      cards_layout: zsl
+
+hooks:
+  - scripts/mkdocs_hooks/skill_pages.py
+
+# ADRs are contributor records about the plugin's own architecture, not
+# user-facing site content. They live in docs/adr/ but are intentionally
+# kept out of the nav; this suppresses the --strict "not in nav" error.
+not_in_nav: |
+  adr/*
+  skills/codebase-design.md
+  skills/domain-modeling.md
+  skills/grilling.md
+
+# docs/agents/ is this repo's own per-repo agent config (written by
+# /setup-zsl-superpowers — issue tracker, triage labels, domain, ship style,
+# project board). It is consumed by the engineering skills, not published as
+# site content, so it's excluded from the build entirely.
+exclude_docs: |
+  agents/
+
+nav:
+  - Home: index.md
+  - Why these skills exist: why.md
+  - Getting started:
+      - Quickstart: quickstart.md
+      - Per-repo setup: setup.md
+  - Using ZSL:
+      - The loop: workflow.md
+      - Triage state machine: concepts/state-machine.md
+      - Git branching: concepts/branching.md
+  - Deep dives:
+      - Parallel TDD: tdd-parallel.md
+      - Code review: code-review.md
+      - Remote agents (overnight): remote-agents.md
+  - Skills:
+      - Overview: skills/index.md
+      - Plan:
+          - skills/decision-mapping.md
+          - skills/grill-with-docs.md
+          - skills/grill-me.md
+          - skills/to-prd.md
+      - Break down:
+          - skills/to-issues.md
+          - skills/triage.md
+      - Build:
+          - skills/tdd.md
+          - skills/tdd-parallel.md
+          - skills/human-itl.md
+          - skills/diagnose.md
+      - Verify:
+          - skills/verify-coverage.md
+      - Ship:
+          - skills/git-branch.md
+          - skills/commit.md
+          - skills/commit-push-pr.md
+          - skills/code-review.md
+      - Overnight (remote agents):
+          - skills/afk-fanout.md
+          - skills/afk-worker.md
+          - skills/morning-review.md
+      - Cross-cutting:
+          - skills/improve-codebase-architecture.md
+      - Off-loop and meta:
+          - skills/prototype.md
+          - skills/teach-me-the-codebase.md
+          - skills/ask-zsl.md
+          - skills/handoff.md
+          - skills/timesheet.md
+          - skills/writing-great-skills.md
+          - skills/edit-article.md
+          - skills/setup-pre-commit.md
+          - skills/steampipe.md
+          - skills/setup-zsl-superpowers.md
+  - Reference:
+      - FAQ: faq.md
+      - Changelog: changelog.md
+      - Privacy: privacy.md
+  - Contributing:
+      - How to contribute: contributing.md
+      - Plugin architecture: architecture.md
+      - Skill invocation model: invocation.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.keys
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true

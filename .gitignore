@@ -1,0 +1,13 @@
+# mkdocs build output
+site/
+
+# mkdocs-material social plugin cache
+.cache/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Claude Code scheduler lock (machine-local, holds a live PID)
+.claude/scheduled_tasks.lock

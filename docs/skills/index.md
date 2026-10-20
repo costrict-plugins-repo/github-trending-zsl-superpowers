@@ -1,0 +1,176 @@
+# Skills
+
+Every skill in the plugin, grouped by bucket. Each entry links to the
+skill's own page — auto-generated from its `SKILL.md` so the site stays
+in lockstep with the plugin source. Click any skill to see what triggers
+it, what it does, and the full spec.
+
+You can always invoke a skill explicitly with `/zsl:<name>`. Skills
+without `disable-model-invocation: true` also auto-trigger when Claude
+Code matches your prompt against the trigger phrases shown on each
+skill's page.
+
+## Which skill do I want?
+
+If you're new here, follow the decision tree:
+
+```mermaid
+flowchart LR
+    start{"What are you trying to do?"}
+    plan["`**Plan a new feature**`"]
+    breakdown["`**Break a plan into work**`"]
+    build["`**Build something**`"]
+    bug["`**Hunt a bug or perf regression**`"]
+    review["`**Ship work**`"]
+    inbox["`**Manage incoming issues**`"]
+    health["`**Fight codebase entropy**`"]
+    other["`**Off the loop**`"]
+
+    start --> plan
+    start --> breakdown
+    start --> build
+    start --> bug
+    start --> review
+    start --> inbox
+    start --> health
+    start --> other
+
+    plan --> decision_mapping["/zsl:decision-mapping<br/><i>mature a fuzzy idea → decision map</i>"]:::plan
+    plan --> grill_me["/zsl:grill-me<br/>or<br/>/zsl:grill-with-docs<br/><i>(updates CONTEXT.md + ADRs)</i>"]:::plan
+    plan --> to_prd["/zsl:to-prd<br/><i>synthesise the chat → PRD</i>"]:::plan
+
+    breakdown --> to_issues["/zsl:to-issues<br/><i>PRD → vertical-slice children</i>"]:::breakdown
+    breakdown --> triage_break["/zsl:triage<br/><i>walk each child to ready-for-agent</i>"]:::breakdown
+
+    build --> single["one slice<br/>at a time"]
+    build --> many["multiple unblocked<br/>[AFK] slices"]
+    build --> manual["manual steps the<br/>agent can't do"]
+    single --> tdd["/zsl:tdd"]:::build
+    many --> tddp["/zsl:tdd-parallel"]:::build
+    manual --> hitl["/zsl:human-itl<br/><i>clear skipped HITL slices</i>"]:::build
+
+    bug --> diagnose["/zsl:diagnose"]:::diag
+
+    review --> verifycov["/zsl:verify-coverage<br/><i>PRD stories all covered?</i>"]:::ship
+    review --> commit["/zsl:commit<br/><i>explicit file list</i>"]:::ship
+    review --> code_review["/zsl:code-review<br/><i>pre-PR scan</i>"]:::ship
+    review --> branch["/zsl:git-branch<br/><i>before /zsl:tdd</i>"]:::ship
+
+    inbox --> triage_in["/zsl:triage"]:::cross
+
+    health --> ica["/zsl:improve-codebase-architecture<br/><i>every few days</i>"]:::cross
+
+    other --> prototype["/zsl:prototype<br/><i>throwaway exploration</i>"]:::misc
+    other --> teach["/zsl:teach-me-the-codebase<br/><i>learn an unfamiliar repo</i>"]:::misc
+    other --> handoff["/zsl:handoff<br/><i>compact session → next agent</i>"]:::misc
+    other --> timesheet["/zsl:timesheet<br/><i>standup notes</i>"]:::misc
+
+    classDef plan fill:#dbeafe,stroke:#2563eb,color:#1e293b;
+    classDef breakdown fill:#e0e7ff,stroke:#4f46e5,color:#1e293b;
+    classDef build fill:#fef3c7,stroke:#d97706,color:#1e293b;
+    classDef diag fill:#fde68a,stroke:#b45309,color:#1e293b;
+    classDef ship fill:#dcfce7,stroke:#16a34a,color:#1e293b;
+    classDef cross fill:#fce7f3,stroke:#be185d,color:#1e293b;
+    classDef misc fill:#f3f4f6,stroke:#6b7280,color:#1e293b;
+```
+
+For the conceptual map of how skills compose into one loop, see
+[The loop](../workflow.md).
+
+## By role in the loop
+
+Five phases plus cross-cutting helpers and off-loop standalones. Bucket
+folders under `skills/` are organisational only — the **role** is what
+matters for picking a skill.
+
+### Plan
+
+| Skill | What it does |
+|---|---|
+| [decision-mapping](decision-mapping.md) | Turn a loose, multi-session idea into a sequenced map of decisions + ticket-sized slices, so it matures before a PRD. Writes the map to `.scratch/decision-maps/`; composes `grilling`/`domain-modeling`/`prototype`, then hands off to `to-prd`. |
+| [grill-with-docs](grill-with-docs.md) | Interview-driven planning. Sharpens terminology against `CONTEXT.md` and ADRs inline — the highest-leverage skill in the plugin. |
+| [grill-me](grill-me.md) | Interview-only variant (no doc updates). Use for non-code planning. |
+| [to-prd](to-prd.md) | Synthesise the current conversation into a PRD on the tracker. No interview — just packaging. Each story is written at value altitude with testable assertions in `AC<n>:` acceptance criteria; refuses non-automatable stories. Every story carries at least one `AC<n>:` acceptance criterion. |
+
+### Break down
+
+| Skill | What it does |
+|---|---|
+| [to-issues](to-issues.md) | Break the PRD into vertical-slice sub-issues with `[AFK\|HITL] <wave><letter>` titles and `Blocked by` graphs. Propagates the parent PRD's `AC<n>:` acceptance criteria into each slice body. Auto-relabels the parent to `tracking`. |
+| [triage](triage.md) | Walk each child through the [state machine](../concepts/state-machine.md). Entry point for inbound issues too. |
+
+### Build
+
+| Skill | What it does |
+|---|---|
+| [tdd](tdd.md) | Single-issue red-green-refactor on whatever branch you hand it. |
+| [tdd-parallel](tdd-parallel.md) | Full-auto PRD pipeline: fanout `[AFK]` slices, integrate, auto-chain `/verify-coverage --auto`, auto-fix gaps via re-fanout loop (capped by `--max-coverage-rounds`), open one integration PR. Refuses up front on open `[HITL]` or non-automatable stories. See the [deep-dive](../tdd-parallel.md). |
+| [human-itl](human-itl.md) | Clear the `[HITL]` slices of a PRD — manual actions an agent can't perform — **before** running `/tdd-parallel` (which refuses with any `[HITL]` open). Hard-refuses disguised-decision slices. |
+| [diagnose](diagnose.md) | Reproduce → minimise → hypothesise → instrument → fix → regression-test. The bug-hunting loop. |
+
+### Verify
+
+| Skill | What it does |
+|---|---|
+| [verify-coverage](verify-coverage.md) | Prove every PRD user story is covered by a passing, non-vacuous behavioral test (Tier A maps to existing tests; Tier B generates one from the story's `AC<n>:` acceptance criteria and mutation-proves it). Auto-files gaps as sub-issues (`ready-for-agent` in `--auto` mode, `needs-triage` otherwise) and writes a receipt. Almost always chained by `/tdd-parallel` step 4b in `--auto` mode (where the orchestrator's auto-fix loop iterates on filed gaps); direct invocation is for auditing PRDs whose slices shipped elsewhere. |
+
+### Ship
+
+| Skill | What it does |
+|---|---|
+| [git-branch](git-branch.md) | Create a branch with the `feature/` / `fix/` / `chore/` prefix convention. Run this before `/zsl:tdd` when you don't already have a branch. |
+| [commit](commit.md) | Explicit-file-list commits, fully autonomous for session changes (no per-commit approval prompt). Confirms only the "other-origin" bucket — files dirty before this session — before including. No `git add -A`, no Claude attribution. |
+| [commit-push-pr](commit-push-pr.md) | One-shot ship for a feature branch: pre-flight refuses on the default branch, delegates the commit to [`/zsl:commit`](commit.md), then `git push -u`, then `gh pr create`. No force-push, no `--no-verify`, no Claude attribution. |
+| [code-review](code-review.md) | Pre-PR review of the current branch with a parallel six-lens scan (clean-code, CLAUDE.md compliance, git history, prior PR comments, inline comments, spec alignment) and 0–100 confidence scoring (drops <60). The Spec lens fetches the originating PRD/issue and checks the diff against it. Interactive mode keeps an approval gate; `--auto` applies ≥80 findings as a single revertible commit and reports 60–79 in the return summary. Runs automatically inside `/zsl:tdd` step 5 and `/zsl:tdd-parallel` step 4a. See the [deep-dive](../code-review.md) for the lens layout and confidence model. |
+
+### Overnight (remote agents)
+
+The overnight loop — schedule dedicated remote sessions, run them unattended, review the results. Evening `/afk-fanout` → overnight `/afk-worker` routines (one per PRD, 2h apart) → morning `/morning-review`.
+
+| Skill | What it does |
+|---|---|
+| [afk-fanout](afk-fanout.md) | Interactive local-session scheduler. Shows the queue of `tracking` PRDs with `ready-for-agent` children; you pick which to run overnight and in what order; it schedules one one-shot remote routine per PRD a fixed 2h apart (a throttle for the per-5h-window token cap), each running `/afk-worker`. Light `scheduled` claim prevents double-booking. |
+| [afk-worker](afk-worker.md) | Remote per-PRD executor fired by an `/afk-fanout`-scheduled routine. Runs unattended in its own clone: claim → `in-progress`, `/tdd-parallel <num> --on-review-failure=continue --max 2`, open one integration PR, halt → slice + RCA. Reports its outcome on the shared `afk-runs` ledger branch (reconciled by `/morning-review`) + best-effort Telegram heads-up. Invoked by the routine, not by hand. |
+| [morning-review](morning-review.md) | Walk a human through the overnight artifacts. Reconciles the `afk-runs` ledger into the canonical `.scratch/` tracker across every un-reconciled run, then surfaces integration PRs to verify and merge, scheduled-but-no-result PRDs, halted slices to re-triage. Sorts PRs by their brief's `verify-after:` tag so `local-run` and `staging` slices surface first; `ci` slices are batch-mergeable after a diff skim. Does not auto-merge; does not deploy. |
+
+### Cross-cutting
+
+| Skill | When to reach for it |
+|---|---|
+| [improve-codebase-architecture](improve-codebase-architecture.md) | Every few days, to find deepening opportunities and fight entropy. Step 4 optionally renders an HTML report mixing Mermaid graphs with hand-built SVG when candidates would land better visually than as a numbered list. |
+
+### Off-loop and meta
+
+| Skill | What it does |
+|---|---|
+| [prototype](prototype.md) | Throwaway terminal app or radically-different UI variations. Flushes out a design before committing to a PRD. |
+| [teach-me-the-codebase](teach-me-the-codebase.md) | On-the-fly conversational tutor for an unfamiliar repo. Reads `CONTEXT.md`/ADRs/`CLAUDE.md`/code and teaches the domain, architecture, and conventions. Zero persisted artefacts; hands doc gaps to `grill-with-docs`. |
+| [ask-zsl](ask-zsl.md) | Thin interactive router — asks situational questions and points you at the right ZSL skill mid-session, deferring each skill's description to its own page. The interactive twin of the decision tree above. |
+| [handoff](handoff.md) | Compact the current conversation into a handoff doc in OS temp dir; redacts secrets, references existing artifacts instead of duplicating them, suggests skills for the next session. |
+| [timesheet](timesheet.md) | Claude Code sessions + Granola meetings + calendar events + sent email → standup bullets grouped by customer, then proposed Harvest time entries logged on your yes. |
+| [writing-great-skills](writing-great-skills.md) | Principles + vocabulary reference for authoring great skills: progressive disclosure, sharp descriptions/triggers, deterministic-gate scripts. Replaces the old `write-a-skill` process skill. |
+| [setup-zsl-superpowers](setup-zsl-superpowers.md) | One-time per-repo scaffold. Run before any of the engineering loop skills. |
+| [edit-article](edit-article.md) | Restructure and tighten article drafts. (Misc — rarely reached for.) |
+| [setup-pre-commit](setup-pre-commit.md) | Husky + lint-staged + Prettier + type-check + tests. (Misc.) |
+| [steampipe](steampipe.md) | AWS infra query reference. Auto-triggered only — not user-invocable. (Misc.) |
+
+## Shared / model-invoked
+
+These skills are **model-invoked** — they hold reusable design vocabulary and
+protocols that other skills compose, rather than commands you invoke off a list.
+You won't normally type them; they auto-activate when the task fits, or another
+skill pulls them in. They're deliberately absent from the decision tree and the
+role tables above. See [the invocation model](../invocation.md) for the split.
+
+| Skill | What it owns |
+|---|---|
+| [codebase-design](codebase-design.md) | The deep-module design language — module/interface/depth/seam/adapter, the deletion test, the one-adapter-hypothetical / two-adapters-real refinement, interface-for-testability, and the "design it twice" parallel sub-agent pattern. Composed by `improve-codebase-architecture` and `tdd`. |
+| [domain-modeling](domain-modeling.md) | The domain-doc reasoning home — the `CONTEXT.md` Ubiquitous Language format, the ADR format, and the bundled Domain-Driven Design book-rules. Composed by `grill-with-docs` and `improve-codebase-architecture`. |
+| [grilling](grilling.md) | The shared design-tree interview protocol — status markers, the example tree, the reprint rules, and the node status-lifecycle diagram. Composed by `grill-me` and `grill-with-docs`. |
+
+## See also
+
+- [The loop](../workflow.md) — how the skills compose into one workflow
+- [Git branching in the build phase](../concepts/branching.md) — what `/zsl:tdd` and `/zsl:tdd-parallel` actually do to your tree
+- [The triage state machine](../concepts/state-machine.md) — how issues move through the loop
+- [Remote agents deep-dive](../remote-agents.md) — the overnight loop

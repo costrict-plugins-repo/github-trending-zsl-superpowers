@@ -1,0 +1,1432 @@
+# Changelog
+
+For the full commit history, see
+[github.com/ZunoSmartLabs/zsl-superpowers/commits/main](https://github.com/ZunoSmartLabs/zsl-superpowers/commits/main).
+This page summarises the user-facing changes per plugin version.
+
+## 2.3.0
+
+`/timesheet` now **reads as a consultant's day and lands it in Harvest: grouped by
+customer, with meetings from Granola and the calendar, a narrative close, and
+proposed time entries logged on your yes.**
+
+- **Customers.** Every repo and meeting sits under a `## <Customer>` heading. The
+  digest script assigns projects from a per-user map at
+  `~/.claude/timesheet-customers.json` (`paths` per customer, matched with the
+  `--only` rules; `domains` and `titles` bucket the meetings; `harvest` names the
+  project and task), emits the customer roll-up with pre-rendered duration
+  labels, and shows the customer in `--list`. Without the file the skill proposes
+  one from the day's projects and writes it on your yes. `--customers PATH`
+  points elsewhere.
+- **Meetings.** With the Granola MCP connector the skill lists the meetings inside
+  the window and pulls their summaries; with the Google Calendar connector it
+  reads the same window from the calendar named in the map, which supplies real
+  durations, catches in-person meetings Granola never saw, and drops declined
+  events. Meetings and events render under their customer as `### Calendar · <count>`,
+  each linking to its Granola note, and count as outcomes, so a day of calls with no
+  commits still renders.
+- **Sent email.** With the Gmail connector the skill lists the messages you sent
+  inside the window — subject, time and recipient organisations only, never
+  bodies — renders them per customer as `### Email · <count>`, adds each to the
+  notes of the Harvest row that contains it, and gives an email in otherwise
+  unaccounted time a ten-minute row of its own.
+- **Activity blocks.** Each project's JSON carries `blocks`: contiguous runs of
+  active time in local clock time, split at gaps over 30 minutes or when the
+  customer changes. A customer's `prompts` keywords re-attribute minutes inside
+  another customer's repo from the prompt that names it, so ten minutes of
+  Thundergrid work done from a SeenSafety checkout bill Thundergrid. A session
+  whose first and last events are nine hours apart no longer reads as nine hours
+  of work.
+- **Harvest.** With the Harvest MCP connector the render ends with a table of
+  proposed entries — one per project and block, plus one per meeting, with
+  clock-in and clock-out, project, task and notes drawn from that customer's
+  bullets — checked against what is already logged that day. Every block and
+  meeting gets a row, however small; a customer with no Harvest project keeps
+  its row marked `needs project` with a suggestion of what to add in Harvest.
+  Nothing is written until you say yes.
+- **`--day YYYY-MM-DD`.** One local calendar day, midnight to midnight, instead
+  of a trailing window; "what did I do on the 16th" no longer needs `--hours 24`
+  run at the right moment. The title line carries the date.
+- **No more "which repos to exclude?" gate.** The skill lists the projects and
+  carries on with all of them; trim afterwards if you want to.
+- **How the day went.** Each render closes with three to six clock-ordered
+  bullets telling what was investigated, decided or built, including the work
+  that never became a commit.
+
+No migration steps; every connector and the customers file are optional, and
+the old flat render is what you get without them.
+
+## 2.2.0
+
+Every PRD now **opens with a high-level architecture diagram in ASCII.**
+
+`/to-prd` gained a new first section — **Architecture Overview** — above the
+Problem Statement. After sketching the major modules (existing process step 2),
+the skill now draws them as a labelled ASCII box-and-arrow map of the major
+components and the external systems they talk to, fenced in a plain ``` block so
+it survives copy/paste into the issue tracker. It's a map, not a wiring diagram:
+the dozen-or-so boxes that orient a reader, with per-module internals left to the
+Implementation Decisions section. No migration steps — existing PRDs are
+unaffected; only newly generated ones carry the diagram.
+
+## 2.1.0
+
+Sharpen the **`/commit`** skill in two ways.
+
+**Model-invocable.** `/commit` no longer carries `disable-model-invocation: true`,
+so it can fire on a task match as well as on an explicit `/commit` — and, more
+importantly, orchestrators that already delegate to it (`commit-push-pr`,
+`tdd-parallel`) can now compose it legitimately. Under the taxonomy's composition
+rule (a user-invoked skill may call a model-invoked one, never another
+orchestrator) that delegation was previously a latent violation; this resolves it.
+
+**Opinionated branch routing.** On PR-ship-style repos, `/commit` now decides
+where a commit lands instead of refusing on `main`:
+
+- a commit whose files are **all documentation** (`docs/**`, narrative `*.md`) or
+  under **`.scratch/`** commits straight to `main`;
+- a commit that **touches code** — source, scripts, a `SKILL.md`, or a sync/build
+  manifest (`plugin.json`, `marketplace.json`, `mkdocs.yml`, `Makefile`) — is moved
+  onto a feature branch the skill **creates itself**, then commits there;
+- a **mixed** docs+code commit counts as code and goes to the branch whole.
+
+### Upgrading from 2.0
+
+- `/commit` can now auto-fire when Claude judges the task calls for committing —
+  it is no longer summon-only. If you relied on it never triggering on its own,
+  invoke it only explicitly and review the staged set as before.
+- On `main`, `/commit` no longer refuses code changes — it silently creates a
+  feature branch and commits there. Documentation and `.scratch/` changes still
+  land directly on `main`. The branch name follows the usual prefix convention.
+
+## 2.0.0
+
+Adopt a lightweight **User-invoked / Model-invoked** skill taxonomy, use it to
+deduplicate shared guidance into composable skills, add three new user-invoked
+skills to the loop, and remove/rename three commands. Net skill inventory:
+**32 skills** (six added, `write-a-skill` renamed, two removed). The split is
+documented in [the invocation model](invocation.md) and recorded in
+[ADR 0001](https://github.com/ZunoSmartLabs/zsl-superpowers/blob/main/docs/adr/0001-user-invoked-model-invoked-taxonomy.md).
+
+### The taxonomy
+
+Every skill is now either **user-invoked** (only runs when typed — the
+orchestrators, flagged `disable-model-invocation: true`) or **model-invoked**
+(can also auto-fire when the task fits). The rule: a user-invoked skill may invoke
+model-invoked skills, but never another user-invoked skill. Model-invoked-only
+skills get a lighter sync treatment (registered in `plugin.json` + a "Shared /
+model-invoked" doc subsection, omitted from the decision tree and command lists) —
+a sixth lane in the `CLAUDE.md` skill-sync contract.
+
+### Six new skills
+
+Three **model-invoked** skills extract guidance that used to be duplicated inline
+and drift across skills:
+
+- **`codebase-design`** — the deep-module design language (module / interface /
+  depth / seam / adapter, the deletion test, the one-adapter-hypothetical /
+  two-adapters-real refinement, interface-for-testability, "design it twice").
+  Composed by `improve-codebase-architecture` and `tdd`, which no longer carry
+  their own copies.
+- **`domain-modeling`** — the `CONTEXT.md` Ubiquitous Language format, the ADR
+  format, and the bundled Domain-Driven Design book-rules. Composed by
+  `grill-with-docs` and `improve-codebase-architecture`.
+- **`grilling`** — the design-tree interview protocol (status markers, example
+  tree, reprint rules, status-lifecycle diagram). Composed by `grill-me` and
+  `grill-with-docs`, now thin composers over it.
+
+Three **user-invoked** skills join the loop:
+
+- **`decision-mapping`** *(Plan)* — turn a loose, multi-session idea into a
+  sequenced map of decisions + ticket-sized slices under `.scratch/decision-maps/`
+  before it becomes a PRD; composes `grilling`/`domain-modeling`/`prototype`, hands
+  off to `to-prd`. Local and interactive (not AFK-wired).
+- **`teach-me-the-codebase`** — on-the-fly conversational tutor for an unfamiliar
+  repo; reads `CONTEXT.md`/ADRs/`CLAUDE.md`/code and teaches the domain,
+  architecture, and conventions. Zero persisted artefacts; hands doc gaps to
+  `grill-with-docs`; optional `md-to-html` cheat-sheet on demand.
+- **`ask-zsl`** — a thin interactive router that points you at the right skill
+  mid-session, deferring each skill's description to its own page. Paired with the
+  "Which skill do I want?" decision tree.
+
+### Removals and renames
+
+- **`write-a-skill` → `writing-great-skills`.** The old process skill is replaced
+  by a principles + vocabulary reference (`SKILL.md` + `GLOSSARY.md`). The
+  description-length deterministic gate (`check-description-length.py` + its tests)
+  travels with it; the `make lint`/`make test` targets are repointed.
+- **`caveman` removed.** The ultra-compressed reply mode is gone from every surface.
+- **`zoom-out` removed.** The higher-level-framing skill is gone from every surface.
+
+#### Upgrading from 1.4
+
+These are breaking command changes — three public slash commands changed:
+
+- **`/caveman` is gone.** It no longer resolves. There's no replacement; drop it
+  from any scripts, aliases, or muscle memory.
+- **`/zoom-out` is gone.** It no longer resolves. For higher-level framing of
+  unfamiliar code, reach for `/teach-me-the-codebase` (interactive onboarding) or
+  `/improve-codebase-architecture` (architectural deepening) instead.
+- **`/write-a-skill` is now `/writing-great-skills`.** Same deterministic
+  description-length gate, new name and a sharper principles/vocabulary framing.
+  Update any references; the old command no longer resolves.
+
+No data migration is needed — these are command surfaces, not stored state. After
+updating, restart Claude Code so the new skill inventory loads.
+
+## 1.5.0
+
+### Dropped the `acceptance: automatable` tag from PRD user stories
+
+Since 1.4.0 every PRD user story carried *both* an `acceptance:
+automatable` tag *and* at least one `AC<n>:` acceptance criterion. With
+the `manual-attestation` lane already removed from the pipeline, the tag
+had exactly one legal value — `automatable` — on every story. A field
+that can only ever hold one value carries no signal: the `AC<n>:`
+criterion is what makes a story expressible as a test, and `/zsl:to-prd`
+already refuses to draft a story that has no automatable criterion. The
+tag was ceremony, re-described in lockstep prose across five skills and
+the docs, with nothing reading its value.
+
+`/zsl:to-prd` no longer writes the tag. The pipeline invariant is now
+simply **every in-scope story carries at least one `AC<n>:` acceptance
+criterion** — `/zsl:tdd-parallel`'s pre-flight (1d),
+`/zsl:verify-coverage`'s pre-flight, and `/zsl:triage`'s PRD check all
+key off criterion presence instead of the tag. The semantic guard ("is
+this story automatable?") stays exactly where it was load-bearing:
+`/zsl:to-prd`'s refuse-to-draft gate at authoring time. `/zsl:to-issues`
+no longer propagates the tag into slice bodies (it still carries the
+`AC<n>:` criteria verbatim).
+
+#### Upgrading from 1.4
+
+No action needed. Existing PRDs that still carry `acceptance: automatable`
+lines continue to pass every gate — a leftover tag is now simply ignored,
+not rejected. Every story that was valid under 1.4 (tag + `AC<n>:`)
+remains valid under 1.5 (`AC<n>:` alone), so no PRD needs re-authoring.
+Legacy `observable:` sub-bullets still count as one acceptance criterion,
+unchanged.
+
+### `/zsl:setup-zsl-superpowers` project-board fixes + a hybrid tracker
+
+A batch of fixes and one new capability for `/zsl:setup-zsl-superpowers`,
+all surfaced while wiring a real board onto a local-markdown repo:
+
+- **Fixed a broken Section E mutation.** The "replace Status options"
+  step passed a `projectId` argument that the current GitHub GraphQL
+  schema rejects (`UpdateProjectV2FieldInput doesn't accept argument
+  'projectId'`), so creating a fresh board's canonical columns failed
+  mid-setup. The mutation now uses `fieldId` + `singleSelectOptions`
+  only, and is bundled as a tested deterministic-gate script
+  (`set-status-options.sh`) whose test asserts the `projectId`
+  regression can't return.
+- **New "Hybrid (local markdown + GitHub mirror)" issue tracker.** A
+  Projects v2 board can only track GitHub-native objects, so plain
+  local-markdown issues can't appear on one. The hybrid keeps `.scratch/`
+  as the source of truth and mirrors each issue to a thin linked GitHub
+  issue purely so it lands on the board. New `issue-tracker-hybrid.md`
+  seed; `/zsl:triage` and `/zsl:tdd` resolve the mirror issue number from
+  the `.scratch/` file's `github:` frontmatter before any board update.
+- **Surfaced the tracker ↔ board coupling.** Sections A and E now state
+  outright that a board needs a GitHub-native tracker, and that a
+  local-markdown user who wants a board should pick the hybrid rather
+  than have Section E silently skipped.
+- **Pull-request reference guard.** `/zsl:to-issues` and `/zsl:triage`
+  now confirm before acting when a bare number resolves to a PR (GitHub
+  shares one number space), instead of trying to slice or triage a
+  shipped release PR.
+
+#### Upgrading from 1.4
+
+No action needed. Existing setups are unaffected; the fixes apply the
+next time you run `/zsl:setup-zsl-superpowers` or its board sync.
+
+## 1.4.0
+
+### PRD user stories split into value-level stories + `AC` acceptance criteria
+
+PRDs written by `/zsl:to-prd` used to pin each user story to a single
+`observable:` sub-bullet — a concrete, technical, public-interface
+assertion. In practice that collapsed two altitudes into one line: the
+"stories" read like fine-grained acceptance criteria and leaked
+implementation detail (endpoints, status codes, state names), because a
+story could only carry *one* observable, so any capability needing
+several assertions got fractured into several "stories."
+
+`/zsl:to-prd` now writes user stories at **value altitude** — who, what
+capability, why, with no technical detail in the story line — and pushes
+every testable assertion *down* into one or more **acceptance criteria**
+(`AC1:`, `AC2:`, …) beneath it. A story keeps its `acceptance:
+automatable` tag and now carries at least one `AC<n>:` criterion. The
+acceptance criteria are the contract `/zsl:verify-coverage`'s Tier B
+generates tests against — so a story can hold as many concrete
+assertions as it needs without being split, and the story line itself
+reads like a story again.
+
+The change runs the length of the pipeline, which reads these
+sub-bullets as a lockstep contract:
+
+- **`/zsl:to-prd`** drafts the two-level shape and refuses any story
+  with no automatable acceptance criterion.
+- **`/zsl:to-issues`** propagates the parent story's `acceptance:` tag
+  and `AC<n>:` criteria into each slice's `## User stories covered`
+  verbatim.
+- **`/zsl:verify-coverage`** gates on `acceptance: automatable` + at
+  least one `AC<n>:` criterion, and Tier B generates tests from the
+  story's acceptance criteria (a story is covered when *every*
+  criterion has a passing, non-vacuous test).
+- **`/zsl:tdd-parallel`** pre-flight 1d and **`/zsl:triage`** enforce
+  the same gate before handing work to an agent.
+
+#### Upgrading from 1.3
+
+In-flight PRDs authored before this release carry `observable:`
+sub-bullets, not `AC<n>:` criteria. They keep working: every gate and
+the Tier B test-generation hint accept a legacy `observable:` line as a
+single acceptance criterion, so nothing breaks on upgrade. To get the
+cleaner two-level shape on an existing PRD, hand-convert each
+`observable:` line into one or more `AC<n>:` bullets, or re-run
+`/zsl:to-prd` over the original conversation. New PRDs get the `AC`
+shape automatically.
+
+## 1.3.1
+
+### `/triage`: wrap local-markdown comments at 100 chars to satisfy markdownlint
+
+`/triage` wrote its triage notes and disclaimer comments into the local-markdown
+tracker as single long lines. Repos that lint their committed markdown with
+markdownlint-cli2 enforce MD013 (line-length), so every triage note failed
+`make lint` and needed manual reflowing before it could be committed.
+
+`/triage` now hard-wraps every comment and triage note it writes to a local-markdown
+tracker at ≤100 characters per line — prose only; markdown tables and fenced code
+blocks are left intact, since MD013 exempts them and wrapping would break their
+rendering. The rule lives in `issue-tracker-local.md` (next to the `## Comments`
+convention) with a pointer from the triage skill's disclaimer instruction. Local
+markdown only — GitHub Issues, ClickUp, and other non-markdown trackers have no
+MD013 and are unaffected.
+
+## 1.3.0
+
+### local-markdown tracker: archive folders renamed `done/` → `_done/`
+
+The local-markdown issue tracker's two archive folders are renamed so they sort
+to the **top** of their parent directory instead of getting lost among the active
+feature dirs:
+
+- Closed issues now archive to `.scratch/<NNN>-<feature-slug>/issues/_done/`
+  (was `issues/done/`).
+- Closed features now archive to `.scratch/_done/<YYYYMMDD>-<NNN>-<feature-slug>/`
+  (was `.scratch/done/`).
+
+Under the default locale (the one macOS Finder and the shell use), the leading
+`_` sorts ahead of digit-prefixed feature dirs, so the archive sits at the top
+where it's easy to find. All skills that `git mv` into, exclude, or glob the
+archive (`/zsl:tdd`, `/zsl:human-itl`, `/setup-zsl-superpowers` backfill, the
+feature-number resolver) move in lockstep. Purely a folder-name change — nothing
+is deleted, and feature/issue numbering is untouched.
+
+#### Upgrading from 1.2.x
+
+Existing repos still have their archives under the old `done/` names; the new
+globs won't find them until you rename. **The easiest path is to re-run
+[`/zsl:setup-zsl-superpowers`](skills/setup-zsl-superpowers.md)** — its Section 5
+now detects legacy `done/` archive folders and offers to `git mv` them to
+`_done/` (step 5a, ahead of the existing feature-number backfill). Prefer to do
+it by hand? One-time migration, run from the repo root:
+
+```bash
+# closed features: .scratch/done/ -> .scratch/_done/
+[ -d .scratch/done ] && git mv .scratch/done .scratch/_done
+# closed issues in every feature (active + archived): issues/done/ -> issues/_done/
+for d in $(find .scratch -type d -path '*/issues/done' 2>/dev/null); do
+  git mv "$d" "${d%/done}/_done"
+done
+```
+
+Commit the renames. If you skip this, closed work stays readable on disk but
+`/zsl:tdd`'s no-arg discovery and the archive lookups will treat the old `done/`
+folders as if they were active issues.
+
+## 1.2.1
+
+### remote-agents loop: fix sourceless routines + guided remote setup
+
+- **Fix: `/afk-fanout` now sets the target repo on every scheduled routine.** The
+  step-5 `RemoteTrigger` create body was missing
+  `job_config.ccr.session_context.sources`, so each routine fired with **no repo
+  to clone** and the worker (`/afk-worker` → `/tdd-parallel`) had nothing to
+  operate on — the overnight loop was broken for any repo. `/afk-fanout` now
+  derives the repo's `origin` (normalized to `https://github.com/<owner>/<repo>`)
+  and emits `session_context.sources`. Placement was verified by live API probe:
+  `sources` inside `session_context` round-trips; a copy at the `ccr` level is
+  rejected HTTP 400. `outcomes` is left unset (it auto-populates as a run output,
+  not a scheduler input).
+- Added a deterministic-gate script (`resolve-origin-url.sh`) that normalizes the
+  origin and **fails loudly** on a missing/garbled remote, so a sourceless
+  routine can never be scheduled.
+- **Docs fix: environments are repo-agnostic.** Corrected the "per-repo Claude
+  Code environment" language across `/afk-fanout`, `/setup-zsl-superpowers`
+  Section F, and the `remote-env.md` seed. One generic environment (e.g. "Full
+  Network + GH + Telegram") is reused across all projects; the repo is selected
+  per-routine via `sources`.
+- **`/setup-zsl-superpowers` Section F is now a guided walkthrough.**
+  Field-by-field UI form (Name / Network / env-vars / setup script) with
+  copy-pasteable values, the previously-missing `gh auth setup-git` git-auth
+  prerequisite, fully-walked Telegram bot + chat-id discovery, automatic env-id
+  discovery via `RemoteTrigger`, and a per-repo runtime-cloud-credentials caveat.
+  The `remote-env.md` seed is now a complete operator reference.
+
+#### Upgrading
+
+Any overnight routines scheduled by `/afk-fanout` **before** this fix were created
+without `sources` and could not clone a repo — they either failed at run time or
+produced nothing. Re-run `/afk-fanout` to reschedule under the fixed create body.
+Leftover disabled/spent triggers from the old runs are cosmetic; clear them in the
+claude.ai UI when convenient.
+
+## 1.1.0
+
+Replaces four *secretly-deterministic* skill steps — places a SKILL.md asked
+the model to compute something with exactly one correct answer — with small
+bundled scripts, each behind a **deterministic gate** in its `SKILL.md` with the
+original prose preserved as an explicit fallback. The model copies the script's
+output instead of re-deriving it by hand, so the rare hand-derivation slip (a
+mis-rounded duration, a silently-truncated description, a missed detached HEAD,
+a mis-serialized ledger row) can't happen. Purely additive: if a script can't be
+located the gate prints an `unresolved` line and the skill falls back to the
+same prose it always used, so nothing breaks if you're on an older install.
+
+### What got scripted
+
+- [`/zsl:timesheet`](skills/timesheet.md) — the digest script now emits a
+  per-project `duration_label` (`4.5h`, not a hand-rounded `4h`) and a
+  pre-rendered `window_header` / `window_phrase` (correct timezone + `last 1
+  hour` pluralization). The final timesheet copies them verbatim. Also fixes the
+  old `./scripts/digest_sessions.py` invocation, which only resolved from the
+  plugin's own checkout, to a path resolver that works from any repo.
+- [`/zsl:tdd-parallel`](skills/tdd-parallel.md) — a shared `zsl-preflight.sh`
+  validator runs the mechanical pre-flight gates (clean tree, HEAD not detached,
+  required `docs/agents/*.md` exist, `.worktrees/` gitignored). The
+  "ship-style says PR-style" *content* read stays model-driven.
+- `/zsl:write-a-skill` — a `check-description-length.py`
+  gate counts the hard 1024-char description cap instead of eyeballing it (an
+  over-cap description is silently truncated, dropping its `Use when …` trigger).
+  (The skill was renamed to [`/zsl:writing-great-skills`](skills/writing-great-skills.md) in 2.0.0.)
+- [`/zsl:afk-fanout`](skills/afk-fanout.md) — a `write-afk-entry.sh` serializer
+  owns the initial `afk-runs` ledger entry + manifest row to the exact schema
+  shared with [`/zsl:afk-worker`](skills/afk-worker.md) and
+  [`/zsl:morning-review`](skills/morning-review.md), so the three can't drift.
+
+### Under the hood
+
+Scripts bundle inside each skill's own `scripts/` dir and ride to every
+environment (local plugin install, other repos, remote `/afk-worker` clones) on
+the existing distribution — no provisioning or hook change was required. `make
+test` now runs the new scripts' tests (`pytest` + shell runners). See the
+"Deterministic-gate scripts" contract in `CLAUDE.md`.
+
+### afk-fanout: native one-off scheduling
+
+Separately, [`/zsl:afk-fanout`](skills/afk-fanout.md) now schedules each
+overnight worker as a **native one-off routine** (`run_once_at`) instead of a
+pinned recurring cron that had to be disabled after it fired. Two consequences:
+
+- **One-off runs are exempt from the per-day routine cap.** A night of workers no
+  longer spends your daily routine quota (Pro 5 / Max 15 / Team 25) — only the
+  overnight window and the per-5h token throttle (the fixed 2h slot spacing)
+  bound how many PRDs you can queue. The old "routine-count budget" overflow rule
+  is gone.
+- **Routines auto-disable after they fire** (`ended_reason: run_once_fired`), so
+  there's no disable-after-fire step and no fired-trigger sweep. Spent triggers
+  stay listed as disabled; delete them in the claude.ai UI when convenient
+  (cosmetic — `RemoteTrigger` has no delete action).
+
+No migration needed: any routine scheduled by 1.0.0 has already fired and
+disabled itself. [`/zsl:morning-review`](skills/morning-review.md) is unchanged.
+
+## 1.0.0
+
+The 1.0 release adds an **overnight remote-agent path** alongside the
+existing interactive loop, built on the change that makes it possible:
+[`/zsl:tdd-parallel`](skills/tdd-parallel.md) **partial runs**. The new
+path is a three-skill loop —
+[`/zsl:afk-fanout`](skills/afk-fanout.md) (evening scheduler),
+[`/zsl:afk-worker`](skills/afk-worker.md) (per-PRD remote executor), and
+[`/zsl:morning-review`](skills/morning-review.md) (morning walk-through)
+— that fans work out to one dedicated remote claude.ai session per PRD so
+several `/zsl:tdd-parallel` runs can happen overnight without contending
+on a shared checkout.
+
+This release also reverses 0.10's hard refusal on open `[HITL]` slices,
+teaches `/zsl:verify-coverage` to tell a *deferred* story from a real
+*gap*, and makes `/zsl:to-issues`' `## User stories covered` section
+mandatory — all three serve the partial-run model. **Not purely
+additive:** the partial-run carve and the `deferred` state change how
+interactive `/zsl:tdd-parallel` and `/zsl:verify-coverage` behave even
+if you never touch the remote path (see *Upgrading from 0.11*).
+
+### `/zsl:tdd-parallel`: partial runs replace the open-`[HITL]` refusal (the big change)
+
+0.10 made `/zsl:tdd-parallel` hard-refuse at pre-flight if **any** open
+`[HITL]` slice existed anywhere in the parent's sub-tree. That blanket
+rule was stronger than the invariant it protected. The real invariant is
+*no human gate fires **after** invocation* — and that's preserved by a
+weaker, graph-aware rule:
+
+> Run only slices whose transitive `Blocked by` closure contains no open
+> `[HITL]` slice. Defer every open `[HITL]` slice and everything
+> transitively downstream of it.
+
+Because every selected slice's *entire* blocker closure is HITL-free, no
+selected slice can become human-gated mid-run — the invariant holds just
+as firmly, without throwing away the work that doesn't depend on the
+gate. When anything is deferred, the run is **partial**: it ships the
+runnable slices in a **`[partial]` PR** whose body omits `Closes
+#<parent>` (so the PRD stays *open*) and carries a `## Deferred` section
+naming the gating `[HITL]` issue(s), the deferred slices, and the
+deferred user stories, plus a re-entry recipe. Clear the gate via
+`/zsl:human-itl <parent>`, re-run `/zsl:tdd-parallel <parent>`, and the
+now-closed `[HITL]` slice satisfies its downstream via the existing
+`satisfied_oob` path — the second run (now a full run) closes the parent.
+No partial-specific state is persisted between runs.
+
+This carve is **always on — there is no flag.** A PRD with zero open
+`[HITL]` slices is byte-for-byte the old behaviour: full fanout, closes
+the parent, no `[partial]` marker. Pre-flight 1d now refuses only when
+**no slice is runnable** (everything is deferred behind an open `[HITL]`
+or still in triage), and scopes the automatable-story gate to the
+stories the *runnable* slices cover — stories covered only by deferred
+slices are checked on the later run that makes them in-scope. The
+zero-progress halt (3a) is correspondingly narrowed: an open `[HITL]`
+blocker now causes a partial-complete, never a halt.
+
+### `/zsl:tdd-parallel`: `--on-review-failure halt|continue` flag
+
+A new flag controls what happens when step 4a's
+`/zsl:code-review --auto` applies findings but lint/tests then fail and
+the review commit is reverted. Default `halt` preserves today's
+interactive contract (surface in RCA, leave the user to inspect). New
+`continue` mode proceeds to step 4b — the PRD branch is already at its
+pre-review state, all slices are individually green via their per-slice
+`/zsl:tdd` cycles, so the integration is shippable; the attempted
+findings (count, severity, `file:line` refs, the reverted commit sha)
+ride into the PR body as a `## ⚠️ Integration review failed` section for
+the morning reviewer to re-run `/zsl:code-review` against by hand.
+`/zsl:afk-worker` always passes `continue`.
+
+### `/zsl:tdd-parallel`: feature-prefixed worktree names in `.scratch/` mode
+
+Slice worktrees and branches in local-markdown trackers now include the
+parent feature number: `.worktrees/<feat>-<slice>-<slug>/` and
+`tdd/<feat>-<slice>-<slug>` instead of the `<slice>-<slug>` forms. This
+keeps slice worktrees unambiguous if `/zsl:tdd-parallel` is ever run
+against more than one PRD in the same checkout, since `.scratch/` slice
+numbers are per-feature scoped (every feature has its own `01`, `02`, …).
+Pre-flight 1b's stale-worktree sweep parses the same conditional pattern.
+Overnight this can't arise — `/zsl:afk-worker` gives each PRD its own
+clone — but the prefix keeps single-checkout multi-PRD use safe too.
+GitHub/GitLab mode is unchanged — issue numbers are globally unique there.
+
+### `/zsl:tdd-parallel`: callable from a routine prompt
+
+`/zsl:tdd-parallel` no longer carries `disable-model-invocation: true`
+in its frontmatter, so `/zsl:afk-worker` can drive it from a scheduled
+remote session's prompt. Other automatic invocation paths should still
+be avoided — the skill is expensive (multi-hour wall-clock, many
+sub-agents) and not appropriate for incidental chaining.
+`/zsl:afk-worker` is the one well-defined caller path.
+
+### `/zsl:verify-coverage`: the `deferred` story state
+
+[`/zsl:verify-coverage`](skills/verify-coverage.md) gains a fifth story
+state, **`deferred`**, to support partial runs. A story claimed **only
+by still-open slices** (none shipped — typically the covering slice is
+gated behind an open `[HITL]` that `/zsl:tdd-parallel` deferred) is not a
+gap: the work to cover it hasn't landed yet. It's distinct from both
+`gap` (a hole to fix *now*) and `out-of-scope` (a permanent exclusion) —
+a *temporary* not-yet. Deferred stories are **never** driven through
+Tier B and **never** filed as gaps; doing so would manufacture a
+spurious gap that re-files every round and never converges.
+
+To compute this, step 2 now inverts the `## User stories covered` map for
+**both** shipped *and* open slices, keeping the two separate so a story
+claimed only by open slices reads as `deferred` rather than a real hole
+(no claiming slice at all). The derivation is **always on** — a function
+of tracker state, not a flag; when every slice is shipped, no story is
+deferred and the run is identical to before. A new `deferred=<n>` count
+joins the matrix and the receipt (plus a `deferred-stories:` line), and
+the terminal block reports it separately so `/zsl:tdd-parallel`'s step 4b
+can read `gap=0 deferred>0` as its partial-complete signal — proceed to
+the `[partial]` PR, don't loop. `--no-generate` and `--no-file` both
+respect deferral (it takes precedence over `unverified`, and deferred
+stories are never filed in any mode).
+
+### `/zsl:to-issues`: `## User stories covered` is now mandatory
+
+The `## User stories covered` section on every PRD-derived slice (only a
+freeform plan with no user stories may omit it) is now explicitly
+**mandatory**, because it's load-bearing in two places that read it back
+from the issue body, not the quiz: `/zsl:verify-coverage`'s Tier A
+story→slice map, *and* `/zsl:tdd-parallel` partial runs, which use it to
+tell a deferred story from a real gap. A slicing run that silently drops
+the section breaks partial-run coverage scoping — deferred stories get
+misclassified as gaps and spuriously re-fanned-out. Legacy slices that
+predate the section still fall back to `/zsl:verify-coverage`'s
+lower-confidence inference, but new slices must carry it.
+
+### `verify-after:` field in agent briefs
+
+[`triage/AGENT-BRIEF.md`](https://github.com/ZunoSmartLabs/zsl-superpowers/blob/main/skills/engineering/triage/AGENT-BRIEF.md)
+gains a `verify-after: ci | local-run | staging` line on every brief.
+The field tells the post-PR pipeline how the slice's integration PR
+should be validated before merge:
+
+- **`ci`** — CI signals are sufficient; diff skim + merge. Default for
+  pure business-logic slices that don't touch system boundaries.
+- **`local-run`** — needs `gh pr checkout` + `/verify` against the local
+  dev env. Use for slices touching external APIs, auth, payments,
+  migrations.
+- **`staging`** — needs a staging deploy + smoke test. Reserved for
+  slices where local dev can't faithfully simulate the deployed
+  environment.
+
+Set by `/zsl:triage` when moving a slice to `ready-for-agent`, surfaced
+by `/zsl:afk-fanout` as each PRD's `verify-after` mix at selection, and
+consumed by `/zsl:morning-review` to prioritise the morning walk-through.
+Default to `ci`; only escalate when there's a concrete reason —
+over-tagging defeats the point of unattended runs.
+
+### New skill: `/zsl:afk-fanout`
+
+[`/zsl:afk-fanout`](skills/afk-fanout.md) is an **interactive
+local-session scheduler**, not a cron job. Run it yourself in the
+evening: it shows the queue of `tracking` PRDs with open
+`ready-for-agent` children — including each PRD's `verify-after` mix —
+and you pick which to run overnight and in what order. It then schedules
+one **one-shot remote routine per PRD**, a **fixed 2h apart**, each
+firing a fresh remote session that runs `/zsl:afk-worker <num>`.
+
+The 2h spacing is a deliberate throttle: claude.ai usage is capped per
+rolling 5-hour window and one worker session is a heavy consumer, so
+spacing keeps each window under the cap. It is never compressed. A
+separate, harder ceiling also applies — claude.ai caps **routines per
+day** (Pro 5 / Max 15 / Team & Enterprise 25 as of 2026-05; confirm
+current values), and each scheduled worker is one routine drawn from the
+same subscription budget as interactive sessions. Selections that
+overflow either limit are reported for you to schedule the next evening.
+
+A light `scheduled` claim on each picked PRD stops a second
+`/zsl:afk-fanout` run the same evening from double-booking it. The skill
+never runs `/zsl:tdd-parallel` itself — it only enumerates, claims, and
+schedules — and refuses at pre-flight unless the repo has a configured
+remote-agent environment (see `/zsl:setup-zsl-superpowers` below).
+
+### New skill: `/zsl:afk-worker`
+
+[`/zsl:afk-worker`](skills/afk-worker.md) is the **per-PRD remote
+executor** each scheduled routine fires. It runs unattended in its own
+remote session — own clone, own working tree, own branch — so PRDs never
+contend on a shared checkout. Running one `/zsl:tdd-parallel` per remote
+session is the whole reason fan-out happens at the session level rather
+than inside one orchestrator.
+
+A worker flips the PRD's claim to `in-progress`, runs
+`/zsl:tdd-parallel <num> --on-review-failure=continue --max 2`, and opens
+one integration PR. Because it owns its clone — where local `.scratch/`
+writes never auto-sync home — successes ride home in the integration PR,
+and everything without a PR (the claim flip, any halt's `needs-info`
+move + RCA) is recorded instead as a **per-PRD entry on the shared
+`afk-runs` git branch** (an orphan ledger branch; one entry per PRD so
+concurrent workers never conflict), which `/zsl:morning-review`
+reconciles back into `.scratch/`. On halt:
+
+- **Clean-tree halts** (3a zero-progress, 3d agent failure) — record the
+  attributable slices as `needs-info` with the `/zsl:tdd-parallel` RCA,
+  and set the PRD parent back to `tracking` to re-queue once re-triaged.
+- **Dirty-tree halts** (3e unresolvable merge conflict) — leave the clone
+  untouched for inspection, RCA on the PRD parent. Because the session is
+  isolated, a stuck PRD can't affect any other PRD's worker.
+- **Integration review failure (4a)** is never a halt here — the worker
+  always passes `--on-review-failure=continue`, so it becomes a PR-body
+  warning instead.
+
+Each worker also fires a **best-effort Telegram heads-up** when it
+finishes a PRD (a plain HTTPS call to the Bot API, no MCP connector) if
+`AFK_TELEGRAM_BOT_TOKEN` / `AFK_TELEGRAM_CHAT_ID` are set in the remote
+environment. It carries no load-bearing data — the `afk-runs` ledger is
+the record — so a missing or failing notification never affects a run.
+`/zsl:afk-worker` is invoked by the routine, not by hand.
+
+### New skill: `/zsl:morning-review`
+
+[`/zsl:morning-review`](skills/morning-review.md) is the consumer side of
+the overnight path. It first **reconciles** the `afk-runs` ledger branch
+back into the canonical `.scratch/` tracker — replaying the claim flips
+and halt RCAs that ran in isolated worker clones and can't reach `main`
+any other way — across **every un-reconciled run, not just last night**
+(so a skipped morning isn't lost). Then it reads `/zsl:afk-fanout`'s
+scheduling manifest and walks you through the artifacts in priority
+order:
+
+1. PRs flagged `## ⚠️ Integration review failed` — re-run
+   `/zsl:code-review` against the PR branch locally before merge.
+2. PRs containing slices with `verify-after: staging` — staging deploy +
+   smoke test (manual, project-specific).
+3. PRs containing slices with `verify-after: local-run` —
+   `gh pr checkout` + `/verify` against your local dev env.
+4. Scheduled-but-no-result PRDs — a worker that never produced output
+   (throttled by the token cap, never fired, or stuck on a 3e dirty
+   tree). The manifest cross-check surfaces these so they aren't silently
+   lost; re-schedule or inspect the routine session.
+5. Halted slices in `needs-info` — re-triage decisions (back to
+   `ready-for-agent`, reformulate the brief, or `wontfix`).
+6. PRs where every slice is `verify-after: ci` — diff skim, merge.
+7. PRs with red CI — surfaced separately; investigate via the checks tab.
+
+The skill does **not** auto-merge and does **not** deploy. Manual-deploy
+projects stay manual-deploy. It sequences attention; the human does the
+work and the merge clicks.
+
+### `/zsl:setup-zsl-superpowers`: optional remote-agent environment
+
+[`/zsl:setup-zsl-superpowers`](skills/setup-zsl-superpowers.md) gains an
+optional **Section F — Remote agent environment** that writes
+`docs/agents/remote-env.md`. It records the claude.ai Claude Code
+**environment id** the overnight loop schedules sessions into, installs
+the **remote-skills `SessionStart` hook** (see below) so the skills
+resolve in the fresh remote session, and confirms the remote has push
+access for the `afk-runs` ledger branch, and optionally records the
+*names* (never values) of the `AFK_TELEGRAM_*` secrets for the Telegram
+heads-up. `/zsl:afk-fanout` refuses at pre-flight until this file exists;
+the rest of the loop is unaffected if you skip it.
+
+### `/zsl:setup-zsl-superpowers`: remote-skills hook replaces "install the plugin in the environment"
+
+Earlier 1.0 drafts told you to install the zsl plugin into the claude.ai
+environment so `/zsl:afk-worker` would resolve when a routine fired.
+**There is no such per-environment lever** — plugin availability isn't an
+environment setting, and a scheduled routine starts in a fresh remote
+session with no plugins installed. Section F now provisions the skills
+the correct way: it writes `.claude/hooks/zsl-remote-skills.sh` and merges
+a `SessionStart` entry into the repo's `.claude/settings.json`. The hook
+fires **only when `CLAUDE_CODE_REMOTE=true`** (a no-op in your local
+sessions, where the plugin is installed), clones zsl-superpowers, and
+symlinks its skills — including the `remote-agents` bucket where
+`/zsl:afk-worker` lives — into `~/.claude/skills/`. `/zsl:afk-fanout`'s
+pre-flight now checks for this hook instead of an environment-level plugin
+install.
+
+### Upgrading from 0.11
+
+**The remote path is opt-in, but two changes affect interactive
+`/zsl:tdd-parallel` and `/zsl:verify-coverage` even if you never use it:**
+
+1. **`/zsl:tdd-parallel` no longer refuses on open `[HITL]` slices.**
+   Where 0.10 hard-refused at pre-flight, it now runs the slices whose
+   blocker closure is HITL-free, defers the rest, and opens a `[partial]`
+   PR that leaves the parent PRD open. It refuses only when *no* slice is
+   runnable. If you relied on the blanket refusal as a signal to clear
+   `[HITL]` first, you'll now get a partial PR instead — clear the gate
+   via `/zsl:human-itl <parent>` and re-run to land the remainder. A PRD
+   with no open `[HITL]` slices is unchanged.
+
+2. **`/zsl:verify-coverage` now classifies some stories `deferred`.**
+   A story covered only by a still-open slice reports as `deferred`
+   (with the blocking slice as evidence) instead of being driven through
+   Tier B and filed as a gap. This is always on. If you had automation
+   parsing the matrix counts, note the new `deferred=<n>` field and the
+   `deferred-stories:` receipt line.
+
+3. **`/zsl:tdd-parallel` worktree naming changed in `.scratch/` mode.**
+   Old `.worktrees/<slice>-<slug>/` directories from prior runs won't
+   match the new `<feat>-<slice>-<slug>` sweep pattern and are left
+   untouched (harmless). To clean up, `rm -rf .worktrees/` once before
+   your next run — the next invocation recreates what it needs.
+
+4. **Existing agent briefs without `verify-after:` still work.**
+   `/zsl:morning-review` treats a missing field as `ci`. To get the
+   risk-aware walk-through, re-triage existing `ready-for-agent` slices
+   and add the field; new briefs written by `/zsl:triage` carry it
+   automatically.
+
+To stand up the overnight path itself:
+
+1. Run `/zsl:setup-zsl-superpowers` and answer **Section F** to write
+   `docs/agents/remote-env.md` with your claude.ai environment id (and,
+   optionally, the Telegram secret names). The same section installs the
+   remote-skills `SessionStart` hook (`.claude/hooks/zsl-remote-skills.sh`)
+   so the skills resolve in the remote session — there's no plugin to
+   install into the environment. Confirm the remote can push the
+   `afk-runs` branch.
+2. In the evening, run `/zsl:afk-fanout` in a local session. Pick the
+   PRDs to run overnight; it schedules one remote routine per PRD, a
+   fixed 2h apart, each running `/zsl:afk-worker`.
+3. Each routine clones a fresh checkout and runs one PRD. Successes come
+   home as integration PRs; claim flips and halt RCAs come home on the
+   shared `afk-runs` ledger branch (`/zsl:afk-fanout` also writes its
+   scheduling manifest there).
+4. The morning after, run `/zsl:morning-review` to reconcile the ledger
+   and walk the resulting PRs, halted slices, and any PRD that produced
+   no result.
+
+## 0.11.0
+
+Eight engineering skills now bundle decision-pressure rules distilled
+from classic software-engineering books, sourced from
+[ciembor/agent-rules-books](https://github.com/ciembor/agent-rules-books)
+by Maciej Ciemborowicz (MIT, pinned to `v0.5`):
+
+- `/zsl:tdd` ← Refactoring + Working Effectively with Legacy Code (nano)
+- `/zsl:improve-codebase-architecture` ← A Philosophy of Software Design + Clean Architecture
+- `/zsl:diagnose` ← Release It!
+- `/zsl:grill-with-docs` ← Domain-Driven Design Distilled + Implementing DDD
+- `/zsl:to-prd` ← Domain-Driven Design Distilled
+- `/zsl:code-review` ← Clean Code + Refactoring
+- `/zsl:verify-coverage` ← Working Effectively with Legacy Code
+- `/zsl:prototype` ← The Pragmatic Programmer
+
+Rules are inline-appended to each `SKILL.md` between
+`<!-- BEGIN bundled-book-rules -->` / `<!-- END bundled-book-rules -->`
+markers and re-rendered by `scripts/sync_book_rules.py` from the
+vendored snapshot in [`vendor/agent-rules-books/`](https://github.com/ZunoSmartLabs/zsl-superpowers/tree/main/vendor/agent-rules-books).
+The behaviour is always-on (no opt-out); a repo can override via
+project-level `CLAUDE.md` if a specific rule set is wrong for that
+codebase.
+
+Two new Makefile targets support the maintenance loop:
+
+- `make check-upstream-books` — diff the vendored snapshot against
+  the latest upstream tag (hand-pick adoption; we do not auto-track).
+- `make sync-books` — re-render the `BEGIN`/`END` fences from
+  `vendor/agent-rules-books/` after a vendor bump.
+
+### Vocabulary alignment in `/zsl:improve-codebase-architecture`
+
+The skill's `LANGUAGE.md` was restructured to ground its vocabulary
+in the bundled APoSD and Clean Architecture rules. **boundary**,
+**layer**, **port**, **cognitive load**, **change amplification**,
+**hidden dependencies**, and **temporal coupling** are now canonical
+terms (citing their source book). Our own additions — **seam**,
+**depth-as-leverage**, **leverage**, **locality** — are kept with
+explicit explanations of how they relate to the books' framing
+(notably: a boundary is a particular kind of seam; depth-as-leverage
+is preferred over Ousterhout's depth-as-ratio because the ratio
+rewards padding the implementation). `HTML-REPORT.md`'s strict
+glossary rules and `SKILL.md`'s inline glossary updated to match.
+
+### Supporting-file alignment in `/zsl:grill-with-docs`
+
+`CONTEXT-FORMAT.md` now names `CONTEXT.md` as the Bounded Context's
+**Ubiquitous Language** (citing *DDD Distilled*) and lists DDD's nine
+context-relationship types — Partnership, Shared Kernel, Customer/
+Supplier, Conformist, Anticorruption Layer, Open Host Service,
+Published Language, Separate Ways, contained Big Ball of Mud — so
+`CONTEXT-MAP.md` relationships can be tagged with type names instead
+of described ad-hoc. The example map shows the tagging: `(Published
+Language)` for event integrations, `(Shared Kernel)` for shared types.
+
+`ADR-FORMAT.md`'s *What qualifies* list now includes **subdomain
+classification** (Core/Supporting/Generic), **Aggregate consistency
+boundaries**, and an enriched *Integration patterns* bullet that names
+the DDD relationship types as concrete ADR subjects.
+
+### Supporting-file alignment in `/zsl:tdd`
+
+`refactoring.md` was rewritten as a scannable trigger checklist aligned
+with Fowler's *Refactoring* nano vocabulary (three-strike duplication,
+decompose conditionals before reaching for polymorphism, separate
+cleanup from behavior, never rewrite when a smaller move would do).
+
+`mocking.md` gained a **Legacy code: internal seams are sometimes
+necessary** section naming Feathers' moves — Sprout, Wrap,
+Parameterize/Inject, Extract & override — and the two guardrails
+(narrowest useful seam; don't leave test-only seams permanent).
+
+`tests.md` gained two sections: **Greenfield vs legacy code in TDD**
+(defines both terms, citing Feathers' "code without trustworthy tests"
+criterion — *legacy is about test trust, not age*) and
+**Characterization tests for legacy code** (worked example: pin
+existing ugly behavior → write the bug-fix test → fix → delete the
+characterization test once it goes red).
+
+### Upgrading from 0.10
+
+No action needed. The bundled rules add bias to existing skills but do
+not change command surfaces or invocation contracts. If a bundled rule
+set conflicts with house style in your repo, add an override in your
+project's `CLAUDE.md` (e.g. *"ignore the Clean Architecture layering
+rules in `/zsl:improve-codebase-architecture` for this codebase; we
+use a feature-folder layout intentionally"*).
+
+## 0.10.0
+
+The headline change is a **full-auto PRD pipeline**:
+[`/zsl:tdd-parallel`](skills/tdd-parallel.md) now runs from invocation
+to a pushed integration PR with no human gates in the happy path —
+including auto-chaining `/zsl:verify-coverage` and auto-fixing any
+gaps it finds. The supporting design moves all human-judgement gates
+*upstream* of `/zsl:tdd-parallel` so the auto-loop has a well-formed
+input contract to operate against. Also: a new
+[`/zsl:commit-push-pr`](skills/commit-push-pr.md) one-shot ship skill,
+a new [code-review deep-dive](code-review.md), Mermaid diagrams across
+several existing skills, and a docs nav reorg around the lifecycle
+phases.
+
+### Full-auto pipeline (the big change)
+
+- **[`/zsl:tdd-parallel`](skills/tdd-parallel.md) auto-chains
+  `/zsl:verify-coverage --auto`** at step 4b (instead of halting and
+  asking you to run it). If verify-coverage files any gap issues, they
+  land as `ready-for-agent` directly and the orchestrator re-enters
+  fanout to fix them — the loop iterates until `gap=0` or a circuit
+  breaker fires. Three circuit breakers cap the loop:
+  `--max-coverage-rounds` (default 3) caps total iterations;
+  per-story retry limit (2) catches the same story bouncing back as a
+  gap; a no-progress check catches round-to-round stagnation. On all
+  three breakers the orchestrator halts with a structured RCA — read
+  the residual matrix in the latest coverage receipt and decide
+  whether to fix by hand.
+- **New pre-flight 1d in `/zsl:tdd-parallel`.** Refuses to start if
+  the parent PRD has any user story missing tags (or tagged anything
+  other than `automatable`), or any open `[HITL]` sub-issue. Both
+  gates ensure the auto-loop has no human-judgement work to bump into
+  mid-run — clear `[HITL]` via [`/zsl:human-itl`](skills/human-itl.md)
+  first; fix tag issues via `/zsl:to-prd` or a hand-edit.
+- **Step 4c delegates the defensive commit to
+  [`/zsl:commit`](skills/commit.md)** then inlines push + structured
+  PR (preserving the wave-ordered `## Slices integrated` and `Closes
+  #N` template) + project-board bulk-move. The PR body grows an
+  `## Auto-fixed coverage gaps` section when the loop ran multiple
+  rounds.
+- **`/zsl:to-prd` now refuses non-automatable user stories.** Every
+  story must carry `acceptance: automatable` and `observable:
+  <description>` sub-bullets — the `observable:` line is the contract
+  Tier B generates a test against. Visual/UX/external-system stories
+  cannot be expressed as a public-interface assertion and so are
+  refused: reframe (e.g. "feels welcoming" → "first-render Lighthouse
+  score ≥ 90"), split into a separate PRD that goes through a manual
+  path, or drop.
+- **`/zsl:to-issues` propagates parent PRD tags into each slice
+  body verbatim.** Each slice's `## User stories covered` section
+  carries the parent story's `acceptance:` / `observable:` lines, so
+  agents and `/zsl:verify-coverage` Tier B see the testable contract
+  without re-fetching the PRD.
+- **`/zsl:triage` validates PRD tags before advancing to
+  `ready-for-agent`.** Triaging a PRD or any of its children checks
+  every story for `acceptance: automatable` + `observable:` and
+  refuses on missing/invalid tags with the offending story numbers.
+- **`/zsl:verify-coverage` simplified and orchestrator-friendly:**
+    - **HITL human-attestation lane removed.** With `/zsl:to-prd`
+      refusing non-automatable stories upstream, there are no manual
+      stories to route. The whole `manual-attestation` value has been
+      eliminated from the design.
+    - **`--auto` flag added.** Skips the matrix-confirmation user
+      prompt and files gap issues as `ready-for-agent` (instead of
+      `needs-triage`) so the orchestrator can fanout the remediation
+      directly. The human review surface moves to `/zsl:triage` (for
+      false-positive gaps, no different from any other triage-able
+      item).
+    - **Classification step removed at runtime.** Reads
+      `acceptance:` tags written by `/zsl:to-prd` instead of
+      LLM-judging AFK-testable vs HITL-verifiable per run.
+    - **`disable-model-invocation: true` removed.** The skill is now
+      chainable by orchestrators (specifically `/zsl:tdd-parallel`
+      step 4b). Direct user invocation is still supported for
+      auditing PRDs that shipped via a different path.
+    - **Receipt format** adds an `invocation: auto | manual` field
+      for audit clarity ("when did this story start failing?").
+
+### New skill
+
+- **[`/zsl:commit-push-pr`](skills/commit-push-pr.md).** One-shot
+  ship for a feature branch: pre-flight refuses on the default
+  branch, delegates the commit to [`/zsl:commit`](skills/commit.md),
+  then `git push -u origin`, then `gh pr create`. Same safety rails
+  as the underlying skills — explicit file lists, no Claude
+  attribution, no `--force`, no `--no-verify`. Handles the
+  existing-PR / auto-PR-workflow fallback. Use when you want to wrap
+  up an interactive session in one keystroke; `/zsl:tdd-parallel`
+  inlines its own push + PR step rather than calling this (it needs
+  the structured integration-PR template that the general-purpose
+  skill doesn't produce).
+
+### New documentation
+
+- **[Code review deep-dive](code-review.md).** Design rationale for
+  `/zsl:code-review`'s six-lens parallel scan (clean-code, CLAUDE.md
+  compliance, git history, prior PR comments, inline comments, spec
+  alignment) and 0–100 confidence model. Joins
+  [tdd-parallel.md](tdd-parallel.md) as the second top-level deep-dive.
+- **mkdocs nav reorganized around lifecycle phases.** "How it fits
+  together" (overview / workflow / phases / state machine / branching)
+  → "Deep dives" (tdd-parallel, code-review) → "Skills" grouped by
+  Plan / Break down / Build / Verify / Ship / Cross-cutting / Off-loop
+  rather than the old engineering/productivity/misc buckets. Easier to
+  find a skill by *when* you use it.
+
+### Visual polish
+
+Mermaid diagrams added to five existing SKILL.md files for
+behavioural flows that read better as pictures than prose:
+
+- **[`/zsl:commit`](skills/commit.md)** — session-vs-other-origin
+  classification flow with the safety-rail kill list.
+- **[`/zsl:improve-codebase-architecture`](skills/improve-codebase-architecture.md)** —
+  decision flow for when to render the HTML report vs stay
+  conversational.
+- **[`/zsl:tdd`](skills/tdd.md)** — step graph for the red-green-refactor
+  cycle with the review/ship branches.
+- **[`/zsl:grill-me`](skills/grill-me.md)** — node status lifecycle
+  (`unresolved → grilling → resolved`) within the design tree.
+- **[`/zsl:handoff`](skills/handoff.md)** — end-to-end flow from
+  current session through redaction to next session.
+
+Plus a **setup config-fanout diagram** in `setup.md` showing which
+config files each skill consumes, and small docs touch-ups: an
+`/zsl:handoff` vs `/clear` FAQ entry, a `/zsl:handoff` row in the
+quick-lookup table on the docs home, and a local-markdown closure
+note in the branching pattern docs.
+
+### Upgrading from 0.9
+
+A few breaking-ish points worth checking before you re-invoke
+`/zsl:tdd-parallel`:
+
+- **PRDs need `acceptance:` + `observable:` tags on every user
+  story.** PRDs written under 0.9 don't carry these. Re-run
+  `/zsl:to-prd` on the originating conversation, or hand-edit the
+  PRD body to add the sub-bullets per `/zsl:to-prd`'s template.
+  `/zsl:triage` refuses to advance children of an untagged PRD to
+  `ready-for-agent`, and `/zsl:tdd-parallel` refuses to start
+  against one.
+- **Non-automatable stories must be split out.** The HITL
+  human-attestation lane in `/zsl:verify-coverage` is gone, and
+  `/zsl:to-prd` refuses to write a story it can't reduce to a
+  public-interface assertion. Visual/UX/external-system work needs
+  its own PRD that goes through a manual path (not this pipeline).
+  Reframing is usually possible — e.g. "looks welcoming" → "Lighthouse
+  first-render score ≥ 90" — and what's left over is a smaller, more
+  focused manual scope.
+- **Clear all `[HITL]` slices *before* `/zsl:tdd-parallel`.** Prior
+  versions silently skipped them and you re-ran the fanout after
+  `/zsl:human-itl`. 0.10 hard-refuses on any open `[HITL]` at
+  pre-flight — the rule simplifies the auto-loop's invariants ("no
+  human-judgement work mid-run") but means you can no longer
+  interleave the two skills mid-flight.
+- **`/zsl:verify-coverage`'s `disable-model-invocation` is gone.**
+  This was a guard against orchestrator self-rubber-stamping; the
+  new design moves that concern to the circuit breakers in
+  `/zsl:tdd-parallel` 4b instead. If you had any local automation
+  that depended on the skill being un-chainable, that assumption no
+  longer holds.
+- **Direct `/zsl:verify-coverage` invocation still works** for
+  auditing PRDs whose slices shipped via another path. It defaults to
+  the interactive mode (matrix confirmation, files gaps as
+  `needs-triage`). Use `--auto` only when chaining from an
+  orchestrator.
+
+## 0.9.0
+
+A focused release that ports three high-leverage additions from
+upstream [`mattpocock/skills`](https://github.com/mattpocock/skills),
+adds a sixth lens to `/code-review`, and aligns one skill with the
+structured `<what-to-do>` / `<supporting-info>` SKILL.md pattern.
+No breaking changes.
+
+- **New skill: [`/zsl:handoff`](skills/handoff.md).** Compacts the
+  current conversation into a handoff document so a fresh agent (or
+  session) can continue cleanly without re-deriving context. Saves to
+  the OS temp directory (`$TMPDIR` on macOS/Linux, `%TEMP%` on
+  Windows) with a dated slug. Redacts API keys, tokens, JWTs, signed
+  URLs, internal hostnames, and `.env`-derived values before writing.
+  References existing artifacts (PRDs, ADRs, issue bodies, commits)
+  by path/line/URL rather than duplicating them. Includes a
+  *Suggested skills for next session* section that names specific
+  `/zsl:<skill>` calls in order. Accepts an argument-hint so the
+  doc can be tailored when the user knows what the next session will
+  focus on. Filling the long-standing gap around session end / `/clear`
+  / cross-agent handoff.
+- **`/zsl:code-review` grows a sixth lens: Spec alignment.** The
+  existing five lenses (clean-code, CLAUDE.md compliance, git
+  history, prior PR comments, inline comments) all read the diff and
+  the surrounding repo. None of them asked *"did this faithfully
+  implement what the spec asked for?"* — the new Spec lens does. It
+  looks up the originating PRD/issue (via commit-message references
+  → user argument → matching path under `docs/`, `specs/`, or
+  `.scratch/`) and reports missing requirements, scope creep, and
+  wrong-implementation findings with the relevant spec line quoted.
+  Returns "no spec available" and skips itself if nothing is found.
+  Inspired by upstream's two-axis `/review` skill; merged as one more
+  lens in our existing parallel scan rather than a separate skill.
+- **`/zsl:improve-codebase-architecture` gains an HTML report
+  output.** Architectural review's value is in the *seeing* —
+  markdown bullets undersell deepening opportunities. The new
+  [`HTML-REPORT.md`](https://github.com/ZunoSmartLabs/zsl-superpowers/blob/main/skills/engineering/improve-codebase-architecture/HTML-REPORT.md) scaffold
+  renders candidates as a single self-contained HTML file in the OS
+  temp dir, mixing Mermaid graphs (dependencies, call flow,
+  sequences) with hand-built SVG diagrams (mass diagrams,
+  cross-sections, call-graph collapse) for editorial weight Mermaid
+  alone can't carry. Tailwind + Mermaid both come from CDNs; no build
+  tooling. Strict glossary enforcement: prose must use the
+  `LANGUAGE.md` terms (module, interface, depth, seam, adapter,
+  leverage, locality) exactly — never "component", "API",
+  "boundary". An optional new step 4 in the SKILL.md; conversational
+  presentation in step 2 stays primary.
+- **`/zsl:grill-me` adopts the
+  `<what-to-do>` / `<supporting-info>` SKILL.md pattern** (matching
+  `/zsl:grill-with-docs`, which already uses it). No behavioural
+  change — same content, sectioned so the model can find "what to do
+  right now" vs "design-tree format reference" without re-skimming.
+  Not migrated: `/zsl:tdd`, `/zsl:tdd-parallel`, `/zsl:triage`,
+  `/zsl:code-review`, and other skills with explicit numbered phases.
+  The structured sections would clutter docs whose body IS the
+  workflow; the pattern is for skills with a "here's the action;
+  here's the reference" shape.
+
+**Upgrading from 0.8:** standard refresh —
+`/plugin marketplace update zsl-superpowers` then restart Claude
+Code. Nothing breaking; nothing to migrate. `/zsl:handoff` is
+available immediately; `/zsl:code-review` automatically picks up the
+Spec lens; `/zsl:improve-codebase-architecture` runs unchanged but
+will now offer an HTML report when it would land better than a
+numbered list.
+
+## 0.8.0
+
+- **Code review becomes a first-class part of the loop.**
+  [`/zsl:code-review`](skills/code-review.md) was rewritten as a
+  more rigorous, less noisy review pass with three structural changes:
+  - **Clean-code lens.** Opens with Uncle Bob framing — simple, correct,
+    minimal; single responsibility; small functions with names that
+    don't lie; no dead code; no premature abstraction. Eight concrete
+    "always flag" standards (incl. behavior changes without test
+    changes, modified `.env*` files, comments that explain *what* the
+    code does instead of *why*).
+  - **Parallel multi-lens scan.** Five concurrent sub-agents handle
+    distinct concerns — CLAUDE.md compliance, shallow bug scan,
+    git history/blame, prior PR comments on the same files, inline code
+    comments — instead of one head doing everything sequentially.
+    Findings are deduplicated, then **scored 0–100**; anything below 60
+    is dropped before you ever see it, reducing the noise the approval
+    gate has to filter. The git-blame and prior-PR-comment lenses in
+    particular catch "this looks wrong but it's pre-existing" and "we
+    already debated this exact thing on PR #142" — blind spots the
+    previous single-pass review couldn't see.
+  - **`--auto` flag for autonomous use.** Drops the approval gate,
+    applies findings ≥80 as a single revertible commit
+    (subject `review: <summary>`), reports 60–79 findings in the return
+    summary for the orchestrator to surface, runs lint+tests post-fix
+    and self-reverts on failure. Designed for AFK contexts — the
+    interactive approval gate stays default and remains the
+    differentiator versus the built-in `/review`.
+
+  A **genericisation pass** also removed Sentry / coverage /
+  SQL / Supabase-specific heuristics that didn't belong in a portable
+  skill. The remaining "Before suggesting changes" section keeps three
+  universal principles (match existing conventions, trust enforcement
+  layers, don't push abstraction prematurely). Net effect: file is 47%
+  shorter and applies to any project.
+
+- **[`/zsl:tdd`](skills/tdd.md) now auto-triggers a review** between
+  Refactor (step 4) and Ship (step 6, renumbered) as new step 5.
+  Interactive mode runs `/code-review` with the approval gate (fixes
+  commit via `/commit`, same discipline as ship); AFK mode (`--no-ship`)
+  runs `/code-review --auto`, with deferred 60–79 findings riding out in
+  the return summary under a **Deferred review findings** section.
+  A new `reviewed` heartbeat phase fires after the review pass so the
+  parent orchestrator sees progress. Catches what the author missed
+  without leaving the loop. The Refactor checklist also gained a
+  **Delete aggressively** discipline — every refactor pass should remove
+  dead code, unused imports, debug statements, commented-out blocks, and
+  comments that explain *what* instead of *why* (TDD that only adds is
+  half-done).
+
+- **[`/zsl:tdd-parallel`](skills/tdd-parallel.md) now runs an
+  integration code review** before the coverage gate. New step 4a fires
+  `/code-review --auto` against the merged PRD tip and rides any
+  cross-slice fixes (duplicate helpers, drift between slices, redundant
+  imports after merge) into the same integration PR. The per-slice
+  review inside each `/tdd` invocation can't see across slices; this
+  pass can. Old subsections 4a/4b shifted to 4b/4c, and a new
+  **Integration review failure** halt path joins the other four —
+  `/code-review --auto` reverts its own commit on lint/test failure and
+  the orchestrator surfaces it in RCA with the reverted commit sha for
+  inspection. The sub-agent prompt template also got a **Lean slices**
+  reinforcement pointing at `/tdd`'s deletion discipline, so bloated
+  slices don't compound into a bloated integration PR.
+
+- **[`/zsl:grill-me`](skills/grill-me.md) and
+  [`/zsl:grill-with-docs`](skills/grill-with-docs.md) now print a design
+  tree** at the start of every session and reprint it whenever the
+  shape or status changes (node resolved, new branch discovered, focus
+  moved, scope shifted). Status markers `[ ] / [→] / [✓]` show where
+  you are in the decision space — pacing and progress become visible at
+  a glance instead of being implicit in the running dialogue.
+
+- **[`/zsl:commit`](skills/commit.md) is now fully autonomous.** Invoking
+  `/commit` no longer pauses for a "Shall I proceed?" approval prompt —
+  the invocation itself is the approval, and all session changes land
+  in one logical commit by default. The skill still classifies dirty
+  files into **session changes** (modified via this conversation's tool
+  calls) versus **other-origin** (files dirty before the session
+  started, or modified outside the conversation) and confirms **only**
+  the other-origin bucket before including or excluding it. Safety
+  rails are unchanged: still never `git add -A`, still refuses to stage
+  `.env*` / `*credentials*` / `*.pem` and other obvious secret patterns,
+  still no Claude attribution lines, still creates a fresh commit
+  (never `--amend`) after a pre-commit hook failure. This composes
+  cleanly with `/zsl:tdd`'s default-on review (Section 1 above) — the
+  user approves fixes once at the review gate; `/commit` then lands
+  them without a second prompt.
+
+- **Local-markdown tracker convention: features now carry a number prefix,
+  archives carry a date prefix.** Active features live at
+  `.scratch/<NNN>-<feature-slug>/` (was `.scratch/<feature-slug>/`),
+  where `<NNN>` is a 3-digit feature number assigned at creation —
+  auto-incremented from the highest existing number across active +
+  archived. Archived features live at
+  `.scratch/done/<YYYYMMDD>-<NNN>-<feature-slug>/` (was
+  `.scratch/done/<feature-slug>/`), with the close date stamped before
+  the feature number so `ls .scratch/done/` shows close order while the
+  number stays embedded for lookup. **Net effect**: features can be
+  addressed by number alone — `/zsl:triage 23`, `/zsl:to-issues 45`, or
+  any other skill that accepts a feature reference resolves via glob
+  (`.scratch/023-*/` for active, `.scratch/done/*-023-*/` for archived).
+  No more typing the slug, no more guessing what the directory was
+  called. [`/zsl:tdd`](skills/tdd.md)'s feature-level close `git mv` now
+  stamps both the date and the embedded number; the number itself is
+  permanent across the active→archive transition. Numbers and dates are
+  unique enough on their own that lookups never have to disambiguate.
+
+**Upgrading from 0.7:** standard refresh — `/plugin marketplace update zsl-superpowers`
+then restart Claude Code. Two things worth knowing:
+
+- **Local-markdown trackers only**: existing features either lack the
+  number prefix (active and archive) or lack the date prefix (archive
+  only), and won't pick up the new lookup semantics or chronological
+  archive sort without a one-time rename. Re-run
+  [`/zsl:setup-zsl-superpowers`](skills/setup-zsl-superpowers.md) — it
+  now detects unprefixed and partially-prefixed features (new step 5)
+  and offers a **single unified backfill** that assigns the missing
+  numbers in date order (from `git log --diff-filter=A`) and stamps any
+  missing archive dates, all in one commit. Confirmation is required
+  before any `git mv` runs; the maintainer can edit dates, override
+  numbers, or skip specific entries. Existing numbered features keep
+  their numbers; new assignments start from `max(existing) + 1`.
+  Alternatively, rename by hand — but the unified backfill is much
+  easier to keep consistent. GitHub, GitLab, and "Other" trackers are
+  unaffected.
+- **`/zsl:tdd`'s interactive flow is slightly longer** because step 5
+  (Review) is now default-on. The review pass is the differentiator
+  versus running `/zsl:code-review` manually after — it stays in the
+  slice's commit graph and gates Ship. If you want fast iteration on a
+  trivial slice, the `--auto` path runs unattended; otherwise the
+  approval gate stays in force and you decide which findings to fix.
+- **`/zsl:commit` no longer asks "Shall I proceed?"** Previously the
+  skill drafted a commit plan and waited for confirmation; now it
+  commits directly after classifying the dirty tree. If you relied on
+  the prompt to catch an unintended file, the **other-origin
+  confirmation** (files dirty before this session) still fires and the
+  **safety rails** (no `git add -A`, refuse to stage `.env*`,
+  credentials, large binaries) still hold. If you want a dry run, run
+  `git status` / `git diff` yourself before invoking `/commit`.
+
+## 0.7.0
+
+- New skill: [`/zsl:verify-coverage`](skills/verify-coverage.md). Closes
+  the loop's missing half. Until now the only post-implementation
+  completeness signal was structural — the tracker auto-closes a PRD when
+  its last child closes — but "all slices shipped" is not "all user
+  stories covered"; they diverge exactly when slicing drops or misframes
+  a story. `/verify-coverage <PRD>` takes the PRD's `## User Stories` as
+  an *acceptance oracle* (never as `/tdd` implementation context) and
+  proves each story against the **implemented code via tests**, not
+  prose or code-search judgement: **Tier A** maps a story to an existing
+  passing behavioral test; **Tier B** generates a test for stories with
+  none, proves it non-vacuous by mutation (it must go RED when the code
+  path is perturbed), then runs it; a **HITL lane** routes visual / UX /
+  external-system stories to human attestation. Genuine gaps are
+  quarantined as skipped tests (referencing the gap issue) and auto-filed
+  as `needs-triage` sub-issues of the PRD, so they re-enter the loop
+  through `/zsl:triage` → `/zsl:tdd-parallel`. The coverage matrix is a
+  review surface that ends in a user decision — never a silent auto-gate.
+  Run it between a `/zsl:tdd-parallel` fanout and merging the integration
+  PR so gaps close in the same cycle. `disable-model-invocation` —
+  user-invoked only.
+- [`/zsl:to-issues`](skills/to-issues.md) now **persists** the
+  story→slice mapping. Previously the "User stories covered" mapping was
+  only spoken in the step-4 quiz and then lost; each published issue now
+  carries a `## User stories covered` section in its body. This is what
+  `/zsl:verify-coverage`'s Tier A reads back as its oracle — without it,
+  coverage would be re-derived from scratch every run.
+- [`/zsl:tdd-parallel`](skills/tdd-parallel.md) now **enforces a coverage
+  gate** (new step 4a) before opening the integration PR. After the
+  fanout integrates, it refuses to push until a valid `/zsl:verify-coverage`
+  receipt exists for the integrated tip — `mode: full` and
+  `verified-sha` equal to the PRD branch HEAD. Missing, `--no-generate`
+  partial, or stale → the run blocks (a checkpoint, not a restart):
+  invoke `/zsl:verify-coverage <parent>` in the still-open session, then
+  continue; reply `skip` for a new **coverage-gate-declined halt** that
+  leaves the merged branch unpushed for you to PR by hand. It is an
+  *execution* gate, not an *outcome* gate — open gaps still pass; only
+  skipping the check is blocked. `/zsl:verify-coverage` writes the
+  receipt as a PRD comment (GitHub/GitLab) or
+  `.scratch/<feature>/verify-coverage-receipt.md` (local-markdown) on
+  every completed run. (Supersedes the soft nudge that briefly shipped in
+  this release's drafts — the gate is the shipped behavior.)
+
+**Upgrading from 0.6:** standard refresh — `/plugin marketplace update zsl-superpowers`
+then restart Claude Code. One thing worth knowing:
+
+- Slice issues created by `/zsl:to-issues` *before* this release have no
+  `## User stories covered` section. `/zsl:verify-coverage` still works
+  against them — it falls back to inferring the story→slice map from each
+  slice's `## What to build` plus its merged diff — but warns that the
+  map is inferred and lower-confidence for those slices. New issues cut
+  after upgrading carry the section and get the exact map. No action
+  required; re-slicing old PRDs is optional and only sharpens Tier A.
+
+## 0.6.0
+
+- New skill: [`/zsl:human-itl`](skills/human-itl.md). The serial,
+  human-present counterpart to [`/zsl:tdd-parallel`](skills/tdd-parallel.md):
+  it walks you through the `[HITL]` slices the fanout skips — the manual
+  actions a coding agent physically can't perform (third-party console
+  clicks, credential rotation, external sign-off, a hand-run migration) —
+  records each as an audit-trail comment, marks them done so the dependent
+  `[AFK]` slices unblock, then stops with the hint to re-run
+  `/zsl:tdd-parallel`. It never writes code (that's `/zsl:tdd`) and never
+  chains the fanout for you.
+- **Narrowed the `[HITL]` definition.** [`/zsl:to-issues`](skills/to-issues.md)
+  previously called a slice HITL if it needed "human interaction, such as
+  an architectural decision or a design review." That conflated two things.
+  A `[HITL]` slice is now strictly a *manual action an agent can't perform*.
+  Architectural decisions and design reviews are **not** HITL slices —
+  they're resolved upstream in [`/zsl:grill-with-docs`](skills/grill-with-docs.md)
+  + an ADR *before* issues are cut, so slices fall out maximally AFK. A
+  `[HITL]` slice that's really a decision in disguise is a process leak,
+  and `/zsl:human-itl` hard-refuses it with a pointer back to grilling.
+- `/zsl:tdd-parallel`'s "Skipped — HITL" guidance no longer tells you to
+  run `/zsl:tdd <num>` (you don't red-green-refactor a manual action). It
+  now points at `/zsl:human-itl <parent>`, after which you re-run the
+  fanout.
+- `/zsl:tdd-parallel` now **resumes correctly after a `/zsl:human-itl`
+  round-trip.** Previously its "is this blocker satisfied?" check only
+  recognised slice branches *it* merged during the current run, so an
+  `[AFK]` slice `Blocked by` a `[HITL]` slice would zero-progress halt
+  *again* on re-run even though `/zsl:human-itl` had finished the blocker
+  (it was closed/done, never a merged branch) — and the RCA would
+  mislabel the finished blocker as `unresolvable`. The unblocked rule now
+  also counts a blocker that is closed/done within the parent's sub-tree
+  (sub-tree-scoped, so an unrelated closed issue can't spuriously satisfy
+  a dependency). This also fixes the quieter cousin: a blocker shipped by
+  a prior independent `/zsl:tdd` is now recognised too.
+
+**Upgrading from 0.5:** standard refresh — `/plugin marketplace update zsl-superpowers`
+then restart Claude Code. One thing worth knowing:
+
+- The `[HITL]` definition is narrower. Any existing open issue titled
+  `[HITL] … — Decide …` / `… — Pick …` / `… — Review …` is now considered
+  mislabeled: it's a decision, not a manual action. Resolve those with
+  `/zsl:grill-with-docs` (capture the outcome as an ADR), then relabel the
+  slice and its dependents `[AFK]` so `/zsl:tdd-parallel` will pick them
+  up. Genuine manual-action `[HITL]` slices need no change — just clear
+  them with `/zsl:human-itl` instead of `/zsl:tdd` from now on.
+
+## 0.5.0
+
+- [`/zsl:tdd`](skills/tdd.md) now closes local-markdown sub-tasks itself on
+  ship: it flips the `Status:` line to `shipped` and runs
+  `git mv .scratch/<feature>/issues/<NN>-<slug>.md` into the feature's
+  `issues/done/` folder, both in the same commit as the slice's code so the
+  close is atomic with the work that earned it. GitHub/GitLab path unchanged
+  (still relies on `Closes #<n>` for tracker-side closure).
+- When that close empties the feature's open `issues/`, `/zsl:tdd` prompts
+  to archive the feature with `git mv .scratch/<feature> .scratch/done/<feature>`.
+  Never automatic — gives you a chance to spin up a follow-up issue first.
+- `/zsl:tdd` invoked with **no argument** now works on local-markdown
+  trackers: it scans `.scratch/`, resolves each open issue's `## Blocked by`
+  against the `issues/done/` archive, and presents the unblocked issues as a
+  numbered picker (with "pending future waves" and "features archived but not
+  closed" buckets shown for context). Auto-discovery for GitHub/GitLab is
+  out of scope — use [`/zsl:triage`](skills/triage.md) for that.
+- Removed: `git-guardrails-claude-code`. Claude Code's harness already
+  hard-blocks pushes to default branches and asks before other destructive
+  ops, so the hook's closed pattern list was redundant where it overlapped
+  and risked false confidence where it didn't (`rm -rf`, `dropdb`, etc.
+  were never covered). The `block-dangerous-git.sh` script is preserved
+  in git history if anyone wants to revive it standalone.
+- Releases are now automated. A push to `main` that bumps the plugin
+  version triggers `.github/workflows/release.yml`, which validates the
+  changelog entry exists and the two version JSONs agree, then creates a
+  `v<version>` GitHub Release with the changelog section as its body.
+  CI enforcement for the rules captured in `CLAUDE.md`. This entry is the
+  workflow's first execution — `v0.5.0` will appear on GitHub Releases
+  the moment the bumping commit lands on `main`.
+
+**Upgrading from 0.4.x:** standard refresh — `/plugin marketplace update zsl-superpowers`
+then restart Claude Code. Two things worth knowing:
+
+- If you ran `/zsl:git-guardrails-claude-code` previously, its PreToolUse hook
+  lives in *your* `.claude/settings.json` (and the `block-dangerous-git.sh`
+  script under `.claude/hooks/`), not in the plugin. The update won't remove
+  them. Leave them if you want the extra protection, or delete the `hooks`
+  block from your settings and the script file by hand.
+- On local-markdown trackers, `/zsl:tdd` now closes sub-tasks itself —
+  flipping `Status:` to `shipped` and `git mv`-ing the issue file into
+  `issues/done/` as part of the slice commit. If you'd been doing this
+  manually after each slice, you can stop. The contract for the local-markdown
+  tracker (where issues live, archive folder layout) is unchanged; only the
+  tool that maintains it has more automation.
+
+## 0.4.1
+
+- Polished skill descriptions and the README intro for the marketplace listing.
+- Documented the plugin/marketplace version-sync requirement in `CLAUDE.md`.
+
+## 0.4.0
+
+- New skill: [`timesheet`](skills/timesheet.md). Reads recent Claude Code
+  session histories from `~/.claude/projects/` and synthesises copy/paste-ready
+  timesheet bullets, grouped by project.
+- The skill ships as LLM synthesis (not deterministic templating) so the output
+  reads like notes you'd actually paste into standup.
+
+## 0.3.x
+
+- New skill: [`prototype`](skills/prototype.md). Builds a throwaway prototype
+  to flush out a design before committing — routes between a runnable terminal
+  app for state/business-logic questions and several radically different UI
+  variations for design questions.
+- Auto-resolve merge conflicts in [`/zsl:tdd-parallel`](skills/tdd-parallel.md):
+  the orchestrator now attempts a clean, lint+test-passing merge before halting,
+  and only halts on genuine semantic conflicts.
+- Made the project-board update mandatory in `/zsl:tdd-parallel` (was previously
+  best-effort) — the integration PR opens with the parent and every merged
+  sub-issue moved to "In review."
+- Reworked `/zsl:tdd-parallel` to a single integration PR per fanout (was
+  previously one PR per slice). See
+  [the deep-dive](tdd-parallel.md) for why.
+- Renamed the plugin to `zsl-superpowers` (was `zsl-skills`).
+- PRDs published by [`/zsl:to-prd`](skills/to-prd.md) now land with
+  `ready-for-agent` instead of `needs-triage` — saves a triage round-trip on
+  PRDs you authored yourself.
+- Documented the `done/` archive convention for the local-markdown issue tracker:
+  closed issues move to `.scratch/<feature>/issues/done/`, closed features move
+  to `.scratch/done/<feature>/`. Nothing is deleted.
+
+## 0.2.x and earlier
+
+- Converted from a standalone repo to a Claude Code plugin (`zsl`) installable
+  from a local clone, then from the GitHub-shorthand marketplace path.
+- Added `marketplace.json` so the repo can register itself as a marketplace.
+- New `tracking` state for container/parent issues — the parent doesn't carry a
+  state on its own children's behalf.
+- Synced triage labels and the `tdd` lifecycle to GitHub Projects v2 `Status`
+  field, behind the optional `docs/agents/project-board.md` mapping.
+- Added the `[AFK]` / `[HITL]` slice prefix and the wave-letter format
+  (`<wave><letter>`) to slice titles so dependency graphs read at a glance.
+- Auto-clean residue and sync `main` in `/zsl:tdd-parallel` pre-flight.
+- New skill: `zoom-out` for higher-level context on
+  unfamiliar code. (Removed in 2.0.0.)
